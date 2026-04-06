@@ -1,6 +1,6 @@
 {
   "name": "youtube-live-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for controlling YouTube Live Streaming via the YouTube Data API v3",
   "type": "module",
   "main": "build/index.js",
