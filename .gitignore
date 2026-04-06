@@ -1,4 +1,4 @@
 node_modules/
-build/
 .env
 *.tsbuildinfo
+youtube-live-mcp-*.tgz
