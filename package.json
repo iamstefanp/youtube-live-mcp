@@ -1,0 +1,15 @@
+{
+  "name": "youtube-live-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for controlling YouTube Live Streaming via the YouTube Data API v3",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {"youtube-live-mcp": "./build/index.js"},
+  "scripts": {"build": "tsc && chmod 755 build/index.js","start": "node build/index.js","dev": "tsc --watch"},
+  "keywords": ["mcp","youtube","live-streaming","model-context-protocol","claude","obs","streaming"],
+  "author": "Runway Services","license": "MIT",
+  "repository": {"type": "git","url": "https://github.com/iamstefanp/youtube-live-mcp"},
+  "dependencies": {"@modelcontextprotocol/sdk": "^1.0.0","googleapis": "^144.0.0","open": "^10.1.0","zod": "^3.22.4"},
+  "devDependencies": {"@types/node": "^22.0.0","typescript": "^5.7.0"},
+  "engines": {"node": ">=18"},"files": ["build","README.md","LICENSE"]
+}
