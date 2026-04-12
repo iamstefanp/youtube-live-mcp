@@ -1,5 +1,7 @@
 import { google, youtube_v3 } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
+import { createReadStream } from "fs";
+import { Readable } from "stream";
 
 export class YouTubeLiveClient {
   private youtube: youtube_v3.Youtube;
@@ -7,6 +9,8 @@ export class YouTubeLiveClient {
   constructor(auth: OAuth2Client) {
     this.youtube = google.youtube({ version: "v3", auth });
   }
+
+  // ── Broadcasts ─────────────────────────────────────────────────────────────
 
   async createBroadcast(params: {
     title: string; description?: string; scheduledStartTime?: string;
@@ -66,6 +70,8 @@ export class YouTubeLiveClient {
     return res.data;
   }
 
+  // ── Streams ─────────────────────────────────────────────────────────────────
+
   async createStream(params: { title: string; resolution?: string; frameRate?: string; ingestionType?: string }): Promise<youtube_v3.Schema$LiveStream> {
     const res = await this.youtube.liveStreams.insert({
       part: ["snippet", "cdn", "contentDetails", "status"],
@@ -87,6 +93,8 @@ export class YouTubeLiveClient {
   }
 
   async deleteStream(streamId: string): Promise<void> { await this.youtube.liveStreams.delete({ id: streamId }); }
+
+  // ── Chat ────────────────────────────────────────────────────────────────────
 
   async listChatMessages(liveChatId: string, pageToken?: string): Promise<youtube_v3.Schema$LiveChatMessageListResponse> {
     const res = await this.youtube.liveChatMessages.list({ liveChatId, part: ["snippet", "authorDetails"], maxResults: 200, pageToken });
@@ -111,4 +119,201 @@ export class YouTubeLiveClient {
   }
 
   async removeModerator(moderatorId: string): Promise<void> { await this.youtube.liveChatModerators.delete({ id: moderatorId }); }
+
+  // ── Videos ──────────────────────────────────────────────────────────────────
+
+  async listVideos(params: { channelId?: string; maxResults?: number; pageToken?: string }): Promise<youtube_v3.Schema$PlaylistItemListResponse> {
+    const chRes = await this.youtube.channels.list({
+      part: ["contentDetails"],
+      ...(params.channelId ? { id: [params.channelId] } : { mine: true }),
+    });
+    const uploadsId = chRes.data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsId) throw new Error("Could not find uploads playlist");
+    const res = await this.youtube.playlistItems.list({
+      part: ["snippet", "contentDetails"],
+      playlistId: uploadsId,
+      maxResults: params.maxResults || 25,
+      pageToken: params.pageToken,
+    });
+    return res.data;
+  }
+
+  async getVideo(videoId: string): Promise<youtube_v3.Schema$Video> {
+    const res = await this.youtube.videos.list({ part: ["snippet", "contentDetails", "status", "statistics"], id: [videoId] });
+    const item = res.data.items?.[0];
+    if (!item) throw new Error(`Video not found: ${videoId}`);
+    return item;
+  }
+
+  async updateVideo(params: { videoId: string; title?: string; description?: string; tags?: string[]; categoryId?: string; privacyStatus?: string; madeForKids?: boolean; commentability?: string }): Promise<youtube_v3.Schema$Video> {
+    const current = await this.getVideo(params.videoId);
+    const res = await this.youtube.videos.update({
+      part: ["snippet", "status"],
+      requestBody: {
+        id: params.videoId,
+        snippet: {
+          title: params.title ?? current.snippet?.title,
+          description: params.description ?? current.snippet?.description,
+          tags: params.tags ?? current.snippet?.tags ?? [],
+          categoryId: params.categoryId ?? current.snippet?.categoryId,
+        },
+        status: {
+          privacyStatus: params.privacyStatus ?? current.status?.privacyStatus,
+          selfDeclaredMadeForKids: params.madeForKids ?? current.status?.selfDeclaredMadeForKids,
+        },
+      },
+    });
+    return res.data;
+  }
+
+  async deleteVideo(videoId: string): Promise<void> { await this.youtube.videos.delete({ id: videoId }); }
+
+  async setVideoThumbnail(videoId: string, filePath: string): Promise<youtube_v3.Schema$ThumbnailSetResponse> {
+    const mimeType = filePath.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+    const res = await this.youtube.thumbnails.set({ videoId, media: { mimeType, body: createReadStream(filePath) } });
+    return res.data;
+  }
+
+  async listCaptions(videoId: string): Promise<youtube_v3.Schema$CaptionListResponse> {
+    const res = await this.youtube.captions.list({ part: ["id", "snippet"], videoId });
+    return res.data;
+  }
+
+  async uploadCaption(params: { videoId: string; language: string; name: string; srtContent: string; isDraft?: boolean }): Promise<youtube_v3.Schema$Caption> {
+    const res = await this.youtube.captions.insert({
+      part: ["snippet"],
+      requestBody: { snippet: { videoId: params.videoId, language: params.language, name: params.name, isDraft: params.isDraft ?? false } },
+      media: { mimeType: "text/plain", body: Readable.from([params.srtContent]) },
+    });
+    return res.data;
+  }
+
+  async deleteCaption(captionId: string): Promise<void> { await this.youtube.captions.delete({ id: captionId }); }
+
+  // ── Channel ─────────────────────────────────────────────────────────────────
+
+  async getChannels(channelId?: string): Promise<youtube_v3.Schema$ChannelListResponse> {
+    const res = await this.youtube.channels.list({
+      part: ["snippet", "contentDetails", "statistics", "brandingSettings", "status"],
+      ...(channelId ? { id: [channelId] } : { mine: true }),
+    });
+    return res.data;
+  }
+
+  async updateChannel(params: { channelId: string; description?: string; keywords?: string; country?: string; defaultLanguage?: string }): Promise<youtube_v3.Schema$Channel> {
+    const current = await this.getChannels(params.channelId);
+    const ch = current.items?.[0];
+    if (!ch) throw new Error(`Channel not found: ${params.channelId}`);
+    const res = await this.youtube.channels.update({
+      part: ["brandingSettings"],
+      requestBody: {
+        id: params.channelId,
+        brandingSettings: {
+          channel: {
+            description: params.description ?? ch.brandingSettings?.channel?.description,
+            keywords: params.keywords ?? ch.brandingSettings?.channel?.keywords,
+            country: params.country ?? ch.brandingSettings?.channel?.country,
+            defaultLanguage: params.defaultLanguage ?? ch.brandingSettings?.channel?.defaultLanguage,
+          },
+        },
+      },
+    });
+    return res.data;
+  }
+
+  async uploadChannelBanner(channelId: string, filePath: string): Promise<youtube_v3.Schema$ChannelBannerResource> {
+    const mimeType = filePath.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+    const bannerRes = await this.youtube.channelBanners.insert({
+      part: ["snippet"],
+      media: { mimeType, body: createReadStream(filePath) },
+    });
+    await this.youtube.channels.update({
+      part: ["brandingSettings"],
+      requestBody: { id: channelId, brandingSettings: { image: { bannerExternalUrl: bannerRes.data.url } } },
+    });
+    return bannerRes.data;
+  }
+
+  // ── Playlists ───────────────────────────────────────────────────────────────
+
+  async listPlaylists(params: { channelId?: string; maxResults?: number; pageToken?: string }): Promise<youtube_v3.Schema$PlaylistListResponse> {
+    const res = await this.youtube.playlists.list({
+      part: ["snippet", "contentDetails", "status"],
+      ...(params.channelId ? { channelId: params.channelId } : { mine: true }),
+      maxResults: params.maxResults || 25,
+      pageToken: params.pageToken,
+    });
+    return res.data;
+  }
+
+  async createPlaylist(params: { title: string; description?: string; privacyStatus?: string }): Promise<youtube_v3.Schema$Playlist> {
+    const res = await this.youtube.playlists.insert({
+      part: ["snippet", "status"],
+      requestBody: {
+        snippet: { title: params.title, description: params.description || "" },
+        status: { privacyStatus: params.privacyStatus || "public" },
+      },
+    });
+    return res.data;
+  }
+
+  async updatePlaylist(params: { playlistId: string; title?: string; description?: string; privacyStatus?: string }): Promise<youtube_v3.Schema$Playlist> {
+    const cur = await this.youtube.playlists.list({ part: ["snippet", "status"], id: [params.playlistId] });
+    const current = cur.data.items?.[0];
+    if (!current) throw new Error(`Playlist not found: ${params.playlistId}`);
+    const res = await this.youtube.playlists.update({
+      part: ["snippet", "status"],
+      requestBody: {
+        id: params.playlistId,
+        snippet: { title: params.title ?? current.snippet?.title, description: params.description ?? current.snippet?.description },
+        status: { privacyStatus: params.privacyStatus ?? current.status?.privacyStatus },
+      },
+    });
+    return res.data;
+  }
+
+  async deletePlaylist(playlistId: string): Promise<void> { await this.youtube.playlists.delete({ id: playlistId }); }
+
+  async addToPlaylist(playlistId: string, videoId: string, position?: number): Promise<youtube_v3.Schema$PlaylistItem> {
+    const res = await this.youtube.playlistItems.insert({
+      part: ["snippet"],
+      requestBody: {
+        snippet: {
+          playlistId,
+          resourceId: { kind: "youtube#video", videoId },
+          ...(position !== undefined ? { position } : {}),
+        },
+      },
+    });
+    return res.data;
+  }
+
+  async removeFromPlaylist(playlistItemId: string): Promise<void> { await this.youtube.playlistItems.delete({ id: playlistItemId }); }
+
+  // ── Comments ────────────────────────────────────────────────────────────────
+
+  async listComments(params: { videoId: string; maxResults?: number; pageToken?: string; order?: string }): Promise<youtube_v3.Schema$CommentThreadListResponse> {
+    const res = await this.youtube.commentThreads.list({
+      part: ["snippet", "replies"],
+      videoId: params.videoId,
+      maxResults: params.maxResults || 20,
+      pageToken: params.pageToken,
+      order: (params.order as any) || "time",
+    });
+    return res.data;
+  }
+
+  async replyToComment(parentId: string, text: string): Promise<youtube_v3.Schema$Comment> {
+    const res = await this.youtube.comments.insert({
+      part: ["snippet"],
+      requestBody: { snippet: { parentId, textOriginal: text } },
+    });
+    return res.data;
+  }
+
+  async deleteComment(commentId: string): Promise<void> { await this.youtube.comments.delete({ id: commentId }); }
+
+  async setCommentModerationStatus(commentId: string, moderationStatus: string): Promise<void> {
+    await this.youtube.comments.setModerationStatus({ id: [commentId], moderationStatus });
+  }
 }
