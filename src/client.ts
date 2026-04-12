@@ -223,10 +223,9 @@ export class YouTubeLiveClient {
 
   async uploadChannelBanner(channelId: string, filePath: string): Promise<youtube_v3.Schema$ChannelBannerResource> {
     const mimeType = filePath.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
-    const bannerRes = await this.youtube.channelBanners.insert({
-      part: ["snippet"],
+    const bannerRes = await (this.youtube.channelBanners.insert as any)({
       media: { mimeType, body: createReadStream(filePath) },
-    });
+    }) as { data: youtube_v3.Schema$ChannelBannerResource };
     await this.youtube.channels.update({
       part: ["brandingSettings"],
       requestBody: { id: channelId, brandingSettings: { image: { bannerExternalUrl: bannerRes.data.url } } },
